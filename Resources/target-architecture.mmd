@@ -1,0 +1,10 @@
+flowchart LR
+    G["G<br/>Ray-Ban Meta glasses<br/>camera + audio peripheral"]
+    P["P<br/>Samsung S24 Ultra<br/>hub, vision pipeline, KAI node"]
+    T1["T1<br/>Samsung S8 Ultra<br/>Stockfish + analysis display"]
+    T2["T2<br/>Samsung S6<br/>move history + notation"]
+
+    G -- "frames via Meta View" --> P
+    P -. "audio egress" .-> G
+    P <-- "FEN / engine lines" --> T1
+    P <-- "moves / status" --> T2

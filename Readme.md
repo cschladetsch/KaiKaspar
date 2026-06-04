@@ -2,78 +2,139 @@
 
 **KAI Assisted Vision System**
 
-Kaspar is a distributed chess vision system built on the [KAI](https://github.com/cschladetsch/CppKAI) mesh. It uses a head-mounted camera (Ray-Ban Meta Gen 2) to observe a physical chess board, extract board state as FEN, and feed it into an analysis pipeline across multiple devices.
+Kaspar is an Android-first workspace for building a distributed chess vision
+system on the [KAI](https://github.com/cschladetsch/CppKAI) mesh. The current
+repository is the Android foundation: a Jetpack Compose app module plus a
+native `kaicore` Android library that proves JNI/CMake packaging.
 
-## Architecture
+The longer-term system uses a head-mounted camera to observe a physical chess
+board, extract board state as FEN, and distribute analysis across Android
+devices. That target architecture is tracked below as roadmap, not current
+implementation.
 
-![Arch](./Resources/Arch1.jpg)
+## Current Implementation
 
-```
-G  (Ray-Ban Meta Gen 2)     — camera capture, audio sink
-P  (Samsung S24 Ultra)      — hub, vision pipeline, KAI node, Meta View bridge
-T1 (Samsung S8 Ultra)       — Stockfish, analysis display, board visualisation
-T2 (Samsung S6)             — move history, notation, status
-```
-
-G is a peripheral to P. All traffic to and from G is mediated by P via the Meta View Android integration. G has no KAI node. P is the spinal cord of the system.
-
-T1 and T2 are full KAI nodes. They subscribe to objects published by P. They do not need to know G exists.
-
-## Pipeline
-
-```
-G  → frame stream → P
-P  → undistort + homography (OpenCV/NDK)
-P  → piece detection (YOLOv8s INT8, Hexagon NPU)
-P  → FEN generation (python-chess)
-P  → board state object (KAI mesh)
-T1 ← board state → Stockfish → engine lines → KAI mesh
-T2 ← move history, notation
-G  ← audio (commentary, move announcements, engine lines) via P
+```mermaid
+flowchart LR
+    App[":app<br/>Compose Android app<br/>com.example.kaikasper1"] --> Core[":kaicore<br/>Android library"]
+    App --> JNI["System.loadLibrary(\"kaicore\")<br/>MainActivity.stringFromJNI()"]
+    Core --> CMake["CMake 3.22.1<br/>shared library: libkaicore.so"]
+    CMake --> CPP["kaicore.cpp<br/>JNI smoke-test string"]
 ```
 
-## Components
+- `:app` is the launchable Android app.
+- `MainActivity` renders a Compose `Scaffold` containing a text greeting.
+- `MainActivity.stringFromJNI()` is the active JNI binding and returns a C++
+  smoke-test string from `libkaicore.so`.
+- `:kaicore` builds the native shared library with CMake and packages it for
+  the app.
+- `NativeLib` exists as a library-side placeholder, but its JNI method is not
+  currently implemented or used by the app.
 
-### P — hub node
-- Android KAI node (full: Registry, Executor, Continuation)
-- Meta View frame ingress via Media Projection API
-- OpenCV lens rectification (calibrated K, D matrices)
-- Homography-based board detection and square extraction
-- YOLOv8s piece classifier via Android NNAPI / Hexagon NPU
-- FEN generation and move validation (python-chess)
-- Audio egress to G (hardwired, mediated by Android audio)
+## Repository Layout
 
-### T1 — analysis node
-- Android KAI node (full)
-- Stockfish ARM64 (Cortex-X2 optimised)
-- Board visualisation (14.6" display)
-- Subscribes to board state from P
-- Publishes engine lines back to P
+```
+.
+|-- app/                  Android application module
+|-- kaicore/              Android library module with C++/JNI source
+|-- gradle/               Gradle wrapper and version catalog
+|-- Resources/            Architecture diagrams and diagram sources
+|-- build.gradle.kts      Root Gradle plugin declarations
+|-- settings.gradle.kts   Module inclusion and repository policy
+`-- Readme.md
+```
 
-### T2 — notation node
-- Android KAI node (full)
-- Move history and scoresheet display
-- Subscribes to board state from P
+## Build
 
-### G — sensor peripheral
-- Ray-Ban Meta Gen 2 Wayfarer
-- Camera: 12MP ultra-wide, 1080p video
-- Audio: 5-mic array, open-ear speakers
-- No KAI node. No direct mesh address.
-- Logically a producer node; physically mediated by P.
+Requirements:
 
-## Transport
+- Android Studio with Android Gradle Plugin 9.2.1 support
+- Android SDK compile SDK 36, minor API 1
+- Android NDK and CMake 3.22.1
+- JDK 11-compatible toolchain
 
-KAI mesh over WiFi LAN. ENet transport. Full KAI wire protocol on P/T1/T2.
+Useful commands:
 
-G's frame stream is not on the mesh. It arrives at P via Meta View / Media Projection and is consumed locally before processed objects are published to the mesh.
+```bash
+./gradlew :app:assembleDebug
+./gradlew test
+./gradlew connectedAndroidTest
+```
 
-## Audio
+On Windows:
 
-Commentary, move announcements, and engine lines are routed from the mesh back to G's speakers via P. The audio ingress on G is hardwired -- no dynamic registration. P exposes a `GlassesAgent` with `speak(String)` and `playAudio(ByteArray)` methods.
+```bat
+gradlew.bat :app:assembleDebug
+gradlew.bat test
+```
 
-## Status
+## Implemented Modules
 
+### `:app`
+
+- Namespace and application ID: `com.example.kaikasper1`
+- Minimum SDK: 34
+- Target SDK: 36
+- UI stack: Jetpack Compose, Material 3, Activity Compose
+- Depends on `:kaicore`
+- Loads `libkaicore.so` directly in `MainActivity`
+
+### `:kaicore`
+
+- Namespace: `com.cschladetsch.kaicore`
+- Android library module
+- Builds `libkaicore.so` from `kaicore/src/main/cpp/kaicore.cpp`
+- Links Android `android` and `log` libraries
+- Exposes a placeholder Kotlin `NativeLib` class
+
+## Target Architecture
+
+The intended chess-vision system still follows the P/T/G device split:
+
+![Target architecture](./Resources/Arch1.jpg)
+
+```mermaid
+flowchart LR
+    G["G<br/>Ray-Ban Meta glasses<br/>camera + audio peripheral"]
+    P["P<br/>Samsung S24 Ultra<br/>hub, vision pipeline, KAI node"]
+    T1["T1<br/>Samsung S8 Ultra<br/>Stockfish + analysis display"]
+    T2["T2<br/>Samsung S6<br/>move history + notation"]
+
+    G -- "frames via Meta View" --> P
+    P -. "audio egress" .-> G
+    P <-- "FEN / engine lines" --> T1
+    P <-- "moves / status" --> T2
+```
+
+G is a peripheral to P. All traffic to and from G is mediated by P through the
+Meta View Android integration. G has no KAI node. P is the hub.
+
+T1 and T2 are full KAI nodes. They subscribe to objects published by P and do
+not need to know G exists.
+
+## Target Pipeline
+
+```mermaid
+flowchart TD
+    Frames["G frame stream"] --> Hub["P hub"]
+    Hub --> Rectify["OpenCV undistort + homography"]
+    Rectify --> Squares["board detection + square extraction"]
+    Squares --> Pieces["YOLOv8s INT8 piece detection"]
+    Pieces --> Fen["FEN generation + move validation"]
+    Fen --> Mesh["KAI board-state object"]
+    Mesh --> Stockfish["T1 Stockfish analysis"]
+    Mesh --> Notation["T2 move history / scoresheet"]
+    Stockfish --> Audio["P audio routing"]
+    Audio --> Glasses["G speakers"]
+```
+
+## Roadmap
+
+- [x] Android application module
+- [x] Android library module
+- [x] CMake-built native shared library
+- [x] JNI smoke test from Compose UI
+- [ ] Move active JNI surface from `MainActivity` into `kaicore.NativeLib`
 - [ ] P: KAI node on Android
 - [ ] P: Meta View frame ingress
 - [ ] P: lens calibration
@@ -86,17 +147,29 @@ Commentary, move announcements, and engine lines are routed from the mesh back t
 - [ ] T1: board visualisation
 - [ ] T2: KAI node on Android
 - [ ] T2: notation display
-- [ ] Mesh: P ↔ T1 ↔ T2 integration
+- [ ] Mesh: P <-> T1 <-> T2 integration
 
-## Dependencies
+## Planned Dependencies
 
-- KAI (ENet transport, post-migration)
-- OpenCV (Android NDK)
-- YOLOv8s (ONNX, Android NNAPI)
-- Stockfish (ARM64 binary)
-- python-chess or equivalent JVM port
-- Android NDK / CMake
+The current project only includes AndroidX/Compose dependencies and the Android
+NDK/CMake path. The target system is expected to add:
+
+- KAI mesh transport
+- OpenCV for Android
+- YOLOv8s or equivalent Android inference model
+- Stockfish ARM64 binary
+- FEN and move-validation library
+- Meta View / Media Projection integration
+
+## Diagram Sources
+
+Text sources for the README diagrams are checked in beside the existing JPEG:
+
+- `Resources/current-implementation.mmd`
+- `Resources/target-architecture.mmd`
+- `Resources/target-pipeline.mmd`
 
 ## Name
 
-Named for Kasparov. Garry Kasparov played 1.e4. Kaspar watches you play whatever you like and thinks about it anyway.
+Named for Kasparov. Garry Kasparov played 1.e4. Kaspar watches you play
+whatever you like and thinks about it anyway.

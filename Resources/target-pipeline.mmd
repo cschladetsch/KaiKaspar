@@ -1,0 +1,11 @@
+flowchart TD
+    Frames["G frame stream"] --> Hub["P hub"]
+    Hub --> Rectify["OpenCV undistort + homography"]
+    Rectify --> Squares["board detection + square extraction"]
+    Squares --> Pieces["YOLOv8s INT8 piece detection"]
+    Pieces --> Fen["FEN generation + move validation"]
+    Fen --> Mesh["KAI board-state object"]
+    Mesh --> Stockfish["T1 Stockfish analysis"]
+    Mesh --> Notation["T2 move history / scoresheet"]
+    Stockfish --> Audio["P audio routing"]
+    Audio --> Glasses["G speakers"]
