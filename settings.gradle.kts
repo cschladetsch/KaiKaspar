@@ -24,3 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "KaiKasper1"
 include(":app")
+include(":kaicore")
