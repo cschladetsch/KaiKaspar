@@ -17,7 +17,7 @@ implementation.
 ```mermaid
 flowchart LR
     App[":app<br/>Compose Android app<br/>com.example.kaikasper1"] --> Core[":kaicore<br/>Android library"]
-    App --> JNI["System.loadLibrary(\"kaicore\")<br/>MainActivity.stringFromJNI()"]
+    App --> JNI["System.loadLibrary('kaicore')<br/>MainActivity.stringFromJNI()"]
     Core --> CMake["CMake 3.22.1<br/>shared library: libkaicore.so"]
     CMake --> CPP["kaicore.cpp<br/>JNI smoke-test string"]
 ```
