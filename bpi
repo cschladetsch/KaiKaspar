@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
+
+if [[ -z "${ANDROID_HOME:-}" && -d "$HOME/Android/Sdk" ]]; then
+  export ANDROID_HOME="$HOME/Android/Sdk"
+fi
+
+exec ./gradlew :app:assembleDebug "$@"
