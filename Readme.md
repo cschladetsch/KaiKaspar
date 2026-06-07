@@ -136,6 +136,7 @@ flowchart TD
 - [x] JNI smoke test from Compose UI
 - [ ] Move active JNI surface from `MainActivity` into `kaicore.NativeLib`
 - [ ] P: KAI node on Android
+- [ ] P: Android console demo linked to CppKAI Console
 - [ ] P: Meta View frame ingress
 - [ ] P: lens calibration
 - [ ] P: board detection pipeline
@@ -168,6 +169,11 @@ Text sources for the README diagrams are checked in beside the existing JPEG:
 - `Resources/current-implementation.mmd`
 - `Resources/target-architecture.mmd`
 - `Resources/target-pipeline.mmd`
+
+## Demos
+
+- `Demo/AndroidConsole`: Android/NDK console shell intended to consume the
+  same CppKAI execution path as `CppKAI/Bin/Console`.
 
 ## Name
 
