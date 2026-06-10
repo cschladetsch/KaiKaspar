@@ -3,10 +3,106 @@
 ## Context
 
 **Project:** KaiKaspar -- chess vision system  
-**Camera:** Ray-Ban Meta Gen 2 glasses (wide-angle, fixed-focus, ~12MP)  
+**Camera:** Ray-Ban Meta Gen 2 glasses (wide-angle, fixed-focus, ~12MP, open-ear speakers)  
 **Hub:** Samsung Galaxy S24 Ultra (Snapdragon 8 Gen 3, arm64-v8a)  
 **Existing stack:** Android Studio, wireless ADB, Kotlin/JNI bridge, kaicore C++ NDK module, CameraAgent (ENet), Stockfish  
 **Problem:** Extract a valid FEN string from a foreshortened first-person image of a physical chessboard  
+
+**Deployment target:** The permanent human-sized outdoor chess installation at the State Library of Victoria steps, Melbourne. One fixed board, one fixed piece set. Board squares are laid into a granite surround; the dark corner squares have low contrast against the granite.
+
+**Intent:** This is a tech demo, not a cheating device. The opponent is always informed before the game that the system is running. The point is passive hands-free computer vision and AI analysis -- the glasses look like glasses, the phone stays in the breast pocket, and the whole pipeline is invisible. At 2100 ELO the Stockfish analysis is not needed to win; it is the demonstration itself that is the product.
+
+**Audio output:** Stockfish best move is spoken via the Ray-Ban Meta open-ear speakers in full algebraic notation ("Knight to F3"). Volume is not a concern -- the Library steps are an outdoor environment with significant ambient street noise; the glasses speakers are effectively private at normal volume. The opponent is informed regardless.
+
+**Training data strategy:** The board and pieces are fixed and known. Training images are shot in two environments:
+- **Controlled (apartment):** same board and pieces, indoor lighting, for establishing baseline classifier performance
+- **Library (outdoor):** same board and pieces, natural lighting variation across time of day and weather conditions
+
+Annotation is free: positions are set up deliberately before shooting, with FEN derived programmatically or from Lichess board editor. One FEN per position setup covers all angles shot from that setup.
+
+---
+
+## Engineering Philosophy
+
+This project is built to last, not to demo. KAI has been in continuous development since 2003. Boost.Monotonic predated std::pmr by a decade. The first PlayStation game in Southeast Asia shipped in 1994. Continuations were derived independently from first principles. The chess clock on the table was built by hand.
+
+The architecture reflects this: ENet over raw sockets, not a cloud SDK. ONNX Runtime on the NPU, not a REST call to an external API. A custom distributed mesh, not Firebase. C++ where C++ is correct.
+
+Codex should understand that shortcuts which introduce hidden dependencies, cloud lock-in, or architectural debt are not acceptable. The correct solution is preferred over the fast solution. Code is written to be read in ten years. If a component can be built properly in C++ with OpenCV it is not replaced with a Python wrapper because the wrapper is easier.
+
+This is not a Y Combinator pitch. It is an engineering project by someone with 30 years of systems experience who has patience, determination, and no interest in cutting corners. Treat it accordingly.
+
+---
+
+## Hardware Topology
+
+### Demo Intent
+
+The Ray-Ban Meta Wayfarer Gen 2 are worn openly. The opponent is always informed before the game that the system is running. The visibility of the hardware is a feature -- "I'm running a full computer vision and AI pipeline through my glasses while we play" is the point. Trusted spectators are handed the S6 Lite to follow along. The Pi clock sits on the table where it always does.
+
+### Devices
+
+| Device | Stage | Role | Always present |
+|---|---|---|---|
+| Ray-Ban Meta Gen 2 Wayfarer | 1 | Camera input, open-ear audio output | Yes |
+| Samsung Galaxy S24 Ultra (Snapdragon 8 Gen 3) | 1 | Primary hub: vision pipeline, LLM, Stockfish fallback | Yes -- breast pocket |
+| Samsung Galaxy S8 Ultra (Snapdragon 8 Gen 2) | 1 | Stockfish compute offload | Optional |
+| Samsung Galaxy S6 Lite | 1 | Spectator display -- handed to trusted spectators | Optional |
+| ChessClock (Raspberry Pi, 7" display, WiFi) | 2 | Primary spectator display, move history, eval bar | Optional -- on the table |
+
+The S24 Ultra is the only guaranteed node. All other devices are opportunistic. The Pi clock is Stage 2 -- in Stage 1 MVP it functions only as a clock.
+
+### Device Roles
+
+**S24 Ultra (always on)**
+- Receives frames from glasses via CameraAgent over ENet
+- Runs full FenExtractor pipeline (PreProcessor, BoardDetector, CellClassifier)
+- Runs LLM post-processor (small quantised model on Hexagon NPU)
+- Emits confirmed FEN into KAI mesh
+- Tracks side to move, game state, PGN
+
+**S8 Ultra (optional)**
+- Runs Stockfish as a KAI node
+- Receives FEN continuations from S24 Ultra via KAI mesh
+- Returns analysis (best move, eval, depth) back into mesh
+- When absent: Stockfish runs on S24 Ultra at reduced depth
+
+**S6 Lite (optional, Stage 1)**
+- Passive display node -- reads position and analysis from KAI mesh
+- Renders board, eval bar, best move suggestions, move history
+- Handed to trusted spectators; requires no interaction
+- Stage 2: largely superseded by the Pi clock as primary spectator display
+
+**ChessClock / Pi (optional, Stage 2)**
+- Custom-built Raspberry Pi clock with 7" display and WiFi -- already on the table
+- Joins KAI mesh as a display node in Stage 2
+- Shows live board position, move history, eval bar, best moves
+- Physically on the table; better spectator experience than the S6 being handed around
+- Adding KAI node support is a few hours of work given existing WiFi and display hardware
+- Stage 1: functions as clock only
+
+### Graceful Degradation
+
+The KAI Registry handles absent nodes transparently -- a node not present is simply not registered. The pipeline must not assume S8, S6, or Pi clock are available.
+
+```
+Stage 1 full:   Glasses -> S24 (vision) -> S8 (Stockfish) -> S6 (display)
+Stage 2 full:   Glasses -> S24 (vision) -> S8 (Stockfish) -> Pi clock (display) -> S6 (spectator)
+No S8:          Glasses -> S24 (vision + Stockfish reduced depth)
+No S6:          Glasses -> S24 (vision) -> S8 (Stockfish)
+S24 only:       Glasses -> S24 (vision + Stockfish reduced depth)  [minimal mode]
+```
+
+Stockfish depth limits by mode:
+
+| Mode | Depth | Latency |
+|---|---|---|
+| S8 offload | 20+ | ~2s acceptable |
+| S24 standalone | 12 | <500ms |
+
+### PGN Export
+
+The full game is recorded in PGN on the S24 Ultra throughout. At game end -- detected by checkmate, or manually triggered -- the PGN is saved locally and optionally shared. This is a one-session deliverable, not a separate stage.
 
 ---
 
@@ -14,73 +110,118 @@
 
 ```
 Ray-Ban Meta Glasses
+        | (ENet, CameraAgent)
+   S24 Ultra
+        |--- PreProcessor       (OpenCV: CLAHE, frame selection)
+        |--- BoardDetector      (OpenCV: centre-3x3, homography)
+        |--- CellClassifier     (ONNX Runtime / Hexagon NPU)
+        |--- BoardTracker       (stateful: legal move filter)
+        |--- LLM Post-processor (small quantised model, Hexagon NPU)
         |
-   CameraAgent (Kotlin/NDK, ENet)
-        |
-   FenExtractor (C++, NDK)
-        |--- PreProcessor       (OpenCV: undistort, CLAHE, frame selection)
-        |--- BoardDetector      (ONNX Runtime: corner detection / homography)
-        |--- CellClassifier     (ONNX Runtime: per-cell piece classification)
-        |--- BoardTracker       (stateful: move legality via Stockfish)
-        |
-   FEN string --> KAI mesh --> Stockfish analysis
+   KAI mesh (ENet)
+        |--- S8 Ultra: Stockfish node (optional)
+        |--- S6 Lite:  Display node   (optional)
 ```
 
 All inference is ONNX Runtime C++ API. Same source compiles for x86_64 desktop and arm64-v8a device.  
-No Python runs on device at any point.
+No Python runs on any device at runtime.
 
 ---
 
-## Stage 1 -- Desktop Baseline (Python)
+## Stage 1 -- Training Data Collection
 
-**Goal:** Validate model selection before touching Android. Produces `.onnx` files and a benchmark table.
+**Goal:** Build an annotated image dataset of the specific board and piece set, covering all piece types, board positions, and lighting conditions needed for classifier training.
 
-### 1.1 Test Image Collection
+### 1.1 What Makes This Tractable
 
-Collect 40+ images in two categories:
+The board and pieces are a fixed known installation. This eliminates generalisation across piece sets entirely. The only uncontrolled variable is outdoor lighting. Annotation is free because positions are set up deliberately -- you record the FEN once per setup, not once per image.
 
-- **Overhead / OTB:** standard top-down photos from a phone, well-lit, various piece sets
-- **Foreshortened:** simulated glasses-camera perspective -- low angle, ~45-60 degrees from horizontal, human-sized board
+### 1.2 Position Script
 
-Label each image with ground-truth FEN for evaluation.
+Shoot the following setups. For each setup, record the FEN once (programmatically or via Lichess board editor), then shoot 3-4 angles before moving pieces.
 
-### 1.2 Baseline Pipeline
+```python
+import chess
 
-Install and run two reference implementations against the full test set:
+# Opening positions -- FEN derived for free from move sequence
+positions = {
+    "start": chess.Board().fen(),
+    "e4_e5": chess.Board("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2"),
+    "sicilian": chess.Board("rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq c6 0 2"),
+    "london":   chess.Board("rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1"),
+}
+
+for name, fen in positions.items():
+    print(f"{name}: {fen}")
+```
+
+Required setups:
+- Starting position
+- 3-4 opening positions after 2-3 moves (mix of 1.e4 and 1.d4 lines)
+- 3-4 middlegame positions with pieces spread across the board (set up manually, record FEN via Lichess)
+- 1-2 endgame positions with sparse pieces (K+Q vs K, K+R+pawns vs K)
+- 1 position with maximum piece diversity -- all piece types on the board simultaneously
+
+That is approximately 10 setups.
+
+### 1.3 Shooting Protocol
+
+**Per setup:**
+- Verify the position visually before shooting
+- Record FEN in `labels.json` keyed by setup name
+- Shoot 3-4 angles: typical seated, standing, slight left, slight right
+- Filename convention: `{setup_name}_{angle}_{session}.jpg`
+
+**Sessions:**
+- Session A: apartment, controlled indoor lighting (baseline)
+- Session B: Library, morning (low sun angle)
+- Session C: Library, midday (harsh overhead)
+- Session D: Library, overcast (flat diffuse light)
+
+Sessions B-D can be combined across visits. D is the most important for generalisation as Melbourne overcast is the most common outdoor condition.
+
+Total target: ~120-160 images across all sessions.
+
+### 1.4 Annotation File Format
+
+```json
+{
+  "start_seated_A": {
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "session": "apartment",
+    "lighting": "indoor"
+  },
+  "start_seated_B": {
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "session": "library_morning",
+    "lighting": "outdoor_sun"
+  }
+}
+```
+
+### 1.5 Existing Images
+
+The 11 apartment images already collected (20260610) are valid training data for Session A. Run the baseline pipeline against them first to establish current off-the-shelf accuracy before any fine-tuning.
+
+### 1.6 Baseline Pipeline Evaluation
+
+Install reference implementations and run against the collected images:
 
 ```bash
-# chessboard2fen
 git clone https://github.com/aelmiger/chessboard2fen
-pip install -r requirements.txt
-
-# CVChess (arXiv:2511.11522)
-# board_to_fen (PyPI, lightweight)
 pip install board_to_fen
 ```
 
-Record per-image accuracy. Decompose errors into two buckets:
-
-- **Rectification failure:** corner detection / homography wrong
+Record per-image accuracy decomposed into two buckets:
+- **Rectification failure:** homography wrong (centre-3x3 detection failed)
 - **Classification failure:** board rectified correctly but pieces misidentified
 
-The foreshortened set will expose rectification failures that the overhead set hides.
+### 1.7 Deliverable
 
-### 1.3 Intermediate Output Instrumentation
-
-Modify whichever pipeline runs best to dump the intermediate rectified board image (the 64-cell grid after homography) as a debug output. This lets you inspect rectification quality independently of classification quality.
-
-### 1.4 Deliverable
-
-Python script `evaluate_pipeline.py`:
-
-```
-usage: evaluate_pipeline.py --images <dir> --labels <fen_labels.json> --model [chessboard2fen|cvchess|board2fen]
-
-outputs:
-  results.json          per-image FEN, error type, accuracy
-  rectified/<name>.png  intermediate rectified board images
-  benchmark.txt         summary table
-```
+- `data/labels.json` -- annotated image index
+- `data/images/` -- all collected images organised by session
+- `evaluate_pipeline.py` -- runs reference models, outputs benchmark table and rectified intermediate images
+- Benchmark table: per-model accuracy on apartment set and Library set separately
 
 ---
 
@@ -315,11 +456,99 @@ Optional but high-value: a lightweight hand detector (MobileNet SSD fine-tuned f
 
 ---
 
-## Stage 5 -- Android Integration
+## Stage 5 -- LLM Post-Processor
+
+**Goal:** A small on-device LLM that uses game history to resolve ambiguous or erroneous classifier output, closing the gap to near-100% confirmed FEN accuracy.
+
+### 5.1 Why the Rule-Based Filter Isn't Enough
+
+`BoardTracker` rejects FENs that aren't reachable by a legal move. But it can't:
+
+- Resolve ambiguous cells (bishop vs queen when the classifier is uncertain)
+- Recover from a missed frame (position jumped two moves)
+- Handle partial occlusion (3 cells unclassifiable due to shadow)
+- Distinguish a piece-lifted state from a genuinely illegal board
+
+The LLM can do all of these by reasoning over game context.
+
+### 5.2 Input / Output Contract
+
+```
+Input (prompt):
+  - Last 5 confirmed FENs (game history)
+  - Legal moves from current position (from Stockfish)
+  - Raw classifier FEN (may be illegal or ambiguous)
+  - Per-cell confidence scores from classifier (which cells are uncertain)
+
+Output (structured JSON):
+  {
+    "confirmed_fen": "rnbq...",   // resolved FEN or null if unresolvable
+    "move": "e2e4",               // inferred move in UCI notation
+    "confidence": 0.97,
+    "reasoning": "queen still on d1 per history, ambiguous cell is bishop"
+  }
+```
+
+### 5.3 Model Selection
+
+Target: fits comfortably on S24 Ultra alongside the rest of the pipeline.
+
+| Model | Size (Q4) | NPU-capable | Notes |
+|---|---|---|---|
+| Phi-3-mini (3.8B) | ~2.2GB | Yes (QNN) | Demonstrated on Snapdragon 8 Gen 3 |
+| Qwen2.5-1.5B | ~1.0GB | Yes | Smaller, faster, may lack chess reasoning |
+| DeepSeek-R1-Distill-Qwen-1.5B | ~1.0GB | Yes | R1 distill has stronger reasoning |
+| Gemma-2 2B | ~1.3GB | Yes | Good instruction following |
+
+Fine-tune whichever is selected on PGN data + synthetic ambiguous-position examples. The fine-tuning teaches it the structured JSON output format and chess position reasoning; it does not need to play chess, only resolve ambiguity given legal move context from Stockfish.
+
+### 5.4 Memory Budget on S24 Ultra
+
+| Component | Approx RAM |
+|---|---|
+| OS + Android baseline | ~3GB |
+| kaicore pipeline (OpenCV, ONNX) | ~500MB |
+| CellClassifier ONNX model | ~100MB |
+| LLM (Phi-3-mini Q4) | ~2.2GB |
+| Stockfish (if S8 absent) | ~100MB |
+| Headroom | ~1.1GB |
+
+Total: fits within 12GB with margin. If S8 is present, Stockfish moves off-device and headroom increases by ~100MB.
+
+### 5.5 Invocation Strategy
+
+The LLM is not invoked on every frame -- only when `BoardTracker` flags uncertainty:
+
+```cpp
+enum class TrackerResult {
+    Confirmed,    // clean legal transition, emit immediately
+    Ambiguous,    // legal but low classifier confidence -- invoke LLM
+    Illegal,      // no legal move matches -- invoke LLM
+    Occluded,     // too many uncertain cells -- hold, do not invoke LLM
+};
+```
+
+In practice the LLM fires only on move transitions, not on steady-state frames. Latency of 500ms-1s for LLM inference is acceptable -- the move has already been played.
+
+### 5.6 Fallback
+
+If the LLM returns null confidence or is unavailable, hold the last confirmed FEN. Never emit an unconfirmed position.
+
+### 5.7 Deliverable
+
+`LLMPostProcessor.h / LLMPostProcessor.cpp` with:
+- Prompt construction from game history + classifier output
+- Structured JSON response parsing
+- Integration with `BoardTracker` via `TrackerResult::Ambiguous` / `Illegal` callbacks
+- GTest suite with synthetic ambiguous positions
+
+---
+
+## Stage 6 -- Android Integration
 
 **Goal:** Port the pipeline to NDK. Same C++ source, different CMake toolchain.
 
-### 5.1 CMake Structure
+### 6.1 CMake Structure
 
 ```cmake
 # CMakeLists.txt (kaicore)
@@ -347,7 +576,7 @@ else()
 endif()
 ```
 
-### 5.2 ONNX Runtime Android Setup
+### 6.2 ONNX Runtime Android Setup
 
 ```gradle
 // build.gradle
@@ -358,7 +587,7 @@ dependencies {
 
 Extract `.so` and headers from the AAR for CMake linking. QNN execution provider (Snapdragon NPU) is available in `onnxruntime-android-qnn` variant.
 
-### 5.3 NPU Acceleration
+### 6.3 NPU Acceleration
 
 ```cpp
 // Try QNN first, fall back to CPU
@@ -371,7 +600,7 @@ try {
 Ort::Session session(env, model_path, opts);
 ```
 
-### 5.4 Model Asset Packaging
+### 6.4 Model Asset Packaging
 
 Place `.onnx` files in `src/main/assets/`. Load via Android Asset Manager:
 
@@ -382,7 +611,7 @@ size_t len = AAsset_getLength(asset);
 Ort::Session session(env, data, len, opts);
 ```
 
-### 5.5 CameraAgent Integration
+### 6.5 CameraAgent Integration
 
 ```cpp
 // Existing CameraAgent emits frames; FenExtractor consumes them
@@ -396,7 +625,7 @@ public:
 };
 ```
 
-### 5.6 Latency Targets
+### 6.6 Latency Targets
 
 | Stage | Target |
 |---|---|
@@ -406,17 +635,17 @@ public:
 | Move legality check | < 5ms |
 | Total end-to-end | < 100ms target, < 200ms acceptable |
 
-### 5.7 Deliverable
+### 6.7 Deliverable
 
 `FenExtractor` integrated into kaicore, emitting FEN events into KAI mesh. Measured latency on S24 Ultra.
 
 ---
 
-## Stage 6 -- Glasses-Specific Hardening
+## Stage 7 -- Glasses-Specific Hardening
 
 **Goal:** Handle the specific constraints of the Ray-Ban Meta Gen 2 camera.
 
-### 6.1 Barrel Distortion -- Verify First
+### 7.1 Barrel Distortion -- Verify First
 
 The Ray-Ban Meta Gen 2 ISP pipeline is a black box. It likely applies lens correction before images reach the app, in which case adding your own `cv::undistort` step would make things worse.
 
@@ -441,7 +670,7 @@ Store calibration coefficients in `camera_calibration.json`. If ISP correction i
 
 **Expected outcome:** lines from the glasses camera appear straight in practice. The undistort path likely becomes a no-op, simplifying PreProcessor considerably.
 
-### 6.2 Frame Selection
+### 7.2 Frame Selection
 
 Only process frames with sufficient sharpness to avoid wasting inference on motion-blurred frames:
 
@@ -457,7 +686,7 @@ if (sharpness < SHARPNESS_THRESHOLD) return; // skip frame
 
 Tune `SHARPNESS_THRESHOLD` empirically on glasses footage (start at 100.0).
 
-### 6.3 Illumination Normalisation
+### 7.3 Illumination Normalisation
 
 ```cpp
 // CLAHE on L channel of LAB colour space
@@ -471,17 +700,84 @@ cv::merge(channels, lab);
 cv::cvtColor(lab, dst, cv::COLOR_Lab2BGR);
 ```
 
-### 6.4 Distance Robustness
+### 7.4 Distance Robustness
 
 The glasses-to-board distance varies (standing vs sitting vs leaning). The corner detector handles this intrinsically if trained on varied distances. Verify the test set covers 0.5m -- 2.5m range.
 
-### 6.5 Deliverable
+### 7.5 Deliverable
 
 `PreProcessor.h / PreProcessor.cpp` with:
 - Undistort (baked calibration coefficients)
 - Sharpness-based frame gating
 - CLAHE normalisation
 - Unit tests verifying each stage in isolation
+
+---
+
+## Stage 8 -- Audio Output
+
+**Goal:** Speak Stockfish's best move through the Ray-Ban Meta open-ear speakers.
+
+### 8.1 Environment
+
+The Library steps are an outdoor urban environment with significant ambient noise -- street traffic, wind, other games, foot traffic. The glasses' open-ear speakers are effectively private at normal volume in this context. No special volume management is required beyond a user-adjustable setting. Full algebraic notation is used ("Knight to F3", "Pawn takes E5", "Castle kingside").
+
+### 8.2 TTS on Android
+
+Android's built-in `TextToSpeech` API is sufficient -- no third-party dependency, no network required, runs entirely on-device.
+
+```kotlin
+class AudioOutputNode(context: Context) {
+    private val tts = TextToSpeech(context) { status ->
+        if (status == TextToSpeech.SUCCESS) {
+            tts.language = Locale.UK  // British English
+            tts.setSpeechRate(0.9f)   // slightly slower for clarity
+        }
+    }
+
+    fun speak(move: String) {
+        tts.speak(move, TextToSpeech.QUEUE_FLUSH, null, null)
+    }
+}
+```
+
+### 8.3 Move Verbalisation
+
+Convert UCI move notation to natural algebraic speech:
+
+```kotlin
+fun uciToSpeech(uci: String, board: Board): String {
+    // "e2e4"  -> "Pawn to E4"
+    // "g1f3"  -> "Knight to F3"
+    // "e1g1"  -> "Castle kingside"
+    // "d5e6"  -> "Pawn takes E6"
+    // "e7e8q" -> "Pawn promotes to Queen on E8"
+}
+```
+
+### 8.4 KAI Integration
+
+`AudioOutputNode` is a KAI consumer node on the S24 Ultra -- it subscribes to the Stockfish analysis continuation and speaks the top move when a new confirmed FEN is emitted.
+
+```cpp
+// Kotlin-side KAI continuation consumer
+stockfishAnalysis.onReceive { analysis ->
+    val speech = uciToSpeech(analysis.bestMove, analysis.board)
+    audioOutput.speak(speech)
+}
+```
+
+### 8.5 MVP Note
+
+For the tech demo, audio output is the final visible (audible) result of the entire pipeline. It is also the most immediately legible demonstration of what the system is doing -- a spectator who is told "the glasses are watching the board and telling him the best move" hears the proof.
+
+### 8.6 Deliverable
+
+`AudioOutputNode.kt` with:
+- `TextToSpeech` initialisation and lifecycle management
+- UCI to natural language verbalisation covering all move types
+- KAI continuation subscription
+- Volume setting persisted in user preferences
 
 ---
 
@@ -492,26 +788,30 @@ kaicore/
   src/
     FenExtractor.cpp / .h       -- top-level pipeline coordinator
     PreProcessor.cpp / .h       -- undistort, CLAHE, frame selection
-    BoardDetector.cpp / .h      -- ONNX corner detection + homography
+    BoardDetector.cpp / .h      -- OpenCV centre-3x3 + homography
     CellClassifier.cpp / .h     -- ONNX per-cell piece classification
     BoardTracker.cpp / .h       -- stateful legality filter
+    LLMPostProcessor.cpp / .h   -- small on-device LLM ambiguity resolution
+  kotlin/
+    AudioOutputNode.kt          -- TTS, UCI to speech, KAI consumer
   assets/
     piece_classifier.onnx
-    centre_detector.onnx    (optional, only if OpenCV path insufficient)
-    camera_calibration.json (identity if ISP already corrects distortion)
+    centre_detector.onnx        (optional, only if OpenCV path insufficient)
+    camera_calibration.json     (identity if ISP already corrects distortion)
   tests/
     TestFenExtractor.cpp
     TestBoardDetector.cpp
     TestCellClassifier.cpp
     TestBoardTracker.cpp
     TestPreProcessor.cpp
+    TestLLMPostProcessor.cpp
 
-scripts/                         -- desktop Python (not deployed to device)
+scripts/                        -- desktop Python, not deployed to device
   evaluate_pipeline.py
-  export_corner_detector.py
   export_piece_classifier.py
   collect_calibration_images.py
   benchmark.py
+  shooting_script.py            -- position setup helper, FEN generation
 ```
 
 ---
@@ -549,20 +849,34 @@ Piece class index mapping (0-12):
 ## Stage Ordering and Dependencies
 
 ```
-Stage 1 (baseline) --> Stage 2 (corner detector ONNX)
-                   --> Stage 3 (classifier ONNX)
-                            |           |
-                            v           v
-                       Stage 4 (BoardTracker)
-                            |
-                            v
-                       Stage 5 (Android integration)
-                            |
-                            v
-                       Stage 6 (hardening)
+Stage 1 (data collection)
+        |
+        +--> Stage 2 (BoardDetector, OpenCV -- no model needed)
+        +--> Stage 3 (CellClassifier ONNX)
+                          |            |
+                          v            v
+                     Stage 4 (BoardTracker -- C++, parallel with 2-3)
+                          |
+                          v
+                     Stage 5 (LLM Post-Processor -- after Stage 4)
+                          |
+                          v
+                     Stage 6 (Android Integration -- after 2, 3, 4, 5)
+                          |
+                          v
+                     Stage 7 (Glasses hardening -- after Stage 6)
+                          |
+                          v
+                     Stage 8 (Audio output -- final MVP stage)
 ```
 
-Stages 1-3 are pure Python / desktop. Do not start Stage 5 until Stage 2 (BoardDetector) and Stage 3 (classifier ONNX) each have validated accuracy metrics. Stage 4 can be written in C++ in parallel with Stages 2-3. Stage 2 has no ONNX dependency by default -- it can be developed and tested on desktop purely with OpenCV before any model training begins.
+- Stages 1-3: Python / desktop only
+- Stage 2 has no ONNX dependency -- pure OpenCV, can start immediately after Stage 1
+- Stage 4 can be written in C++ in parallel with Stages 2-3
+- Stage 5 (LLM) requires Stage 4 complete; model selection and fine-tuning can run in parallel with Stage 3
+- Do not start Stage 6 (Android) until Stages 2, 3, 4, and 5 all have validated accuracy metrics
+- Stage 7 hardening requires real Library footage -- cannot be completed on apartment data alone
+- Stage 8 is Kotlin-only and can be developed in parallel with any stage from 4 onwards; it is the final integration point for the MVP demo
 
 ---
 
@@ -570,8 +884,55 @@ Stages 1-3 are pure Python / desktop. Do not start Stage 5 until Stage 2 (BoardD
 
 | Metric | Target |
 |---|---|
-| FEN accuracy, overhead OTB | > 95% full-position correct |
-| FEN accuracy, foreshortened (glasses) | > 85% full-position correct |
-| False positive rate (illegal FEN emitted) | < 1% |
-| End-to-end latency on S24 Ultra | < 200ms |
-| Battery impact | < 5% per hour of continuous use |
+| FEN accuracy per frame, classifier alone | > 95% |
+| FEN accuracy after BoardTracker + LLM | > 99% |
+| False positive rate (wrong FEN emitted) | < 0.5% |
+| End-to-end latency, S24 Ultra standalone | < 300ms |
+| End-to-end latency, S24 + S8 offload | < 200ms |
+| LLM inference latency (per move transition) | < 1s acceptable |
+| Battery impact, S24 Ultra | < 5% per hour continuous |
+
+---
+
+## Future Stages (Post-MVP)
+
+### F1 -- Pi Clock as KAI Display Node
+
+Add KAI mesh support to the custom-built Raspberry Pi chess clock (7" display, WiFi). It is already on the table at every game. In Stage 2 it becomes the primary spectator display -- live board, move history, eval bar, best moves -- superseding the S6 Lite as the main crowd-facing interface. Estimated effort: a few hours given existing WiFi and KAI architecture.
+
+### F2 -- Crowdsourced Annotation Pipeline
+
+Once employed, fund a distributed annotation workforce to expand the training dataset beyond the fixed Library installation -- covering diverse boards, piece sets, lighting conditions, and camera angles.
+
+**Architecture**
+
+- Lightweight mobile web app (no install): photograph a chess position, confirm FEN via board editor overlay, submit
+- REST endpoint with validation: submissions checked against legal board states before acceptance
+- Two independent submissions must agree on FEN before entering training data; disagreements flagged for senior review
+
+**Trust Hierarchy**
+
+| Level | Role | Rate |
+|---|---|---|
+| Grunt | Submit photos + FEN | $N per accepted submission |
+| Reviewer | Review grunt submissions, flag errors | $2N per accepted submission |
+| Senior | Manual review of flagged disagreements | Negotiated |
+
+Grunts are promoted to Reviewer based on accuracy rate on manually-reviewed submissions. Promotion is an incentive -- reviewers are invested in dataset quality, not just throughput.
+
+Rates TBD (placeholder $N) -- enough to feel worth opening the app, not so high as to incentivise gaming. Target demographic: Melbourne university students. Payment via bank transfer or PayPal per batch.
+
+**Quality Controls**
+
+- Submissions validated against legal board states on ingestion (illegal positions rejected automatically)
+- Duplicate detection (same position, same angle from same submitter)
+- Reviewer accuracy tracked; reviewers who consistently disagree with senior review are demoted
+- Leaderboard in the web app: submission count, accuracy rate, reviewer status
+
+### F3 -- PGN Archive and Game History
+
+Persist all recorded games to a server. Browse past games, replay positions, share PGN. Natural extension of the on-device PGN export added in MVP.
+
+### F4 -- Opening Book Overlay
+
+Given confirmed FEN and move history, identify the current opening line and speak it through the glasses. "Sicilian Defence, Najdorf Variation." Useful for the demo, trivial to implement once the pipeline is solid.
