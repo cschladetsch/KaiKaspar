@@ -84,56 +84,147 @@ outputs:
 
 ---
 
-## Stage 2 -- Corner Detection / Homography
+## Stage 2 -- Board Localisation / Homography
 
-**Goal:** Isolate and harden the rectification step. This is the primary failure mode at low angles.
+**Goal:** Robustly establish the board-to-image homography under two specific constraints: foreshortened first-person perspective, and low contrast between the board border and the surrounding granite surface.
 
-### 2.1 Understand the Failure Mode
+### 2.1 Why Outer-Corner Detection Fails Here
 
-From Stage 1 intermediate outputs, classify rectification failures:
+Standard approaches (OpenCV `findChessboardCornersSB`, chessboard2fen's pose estimator, most YOLO-based detectors) are trained to find the outer board boundary. On a granite surround where the border black squares are only marginally darker than the table, the outer edge is unreliable or undetectable. Do not attempt to detect outer corners.
 
-- Corners not detected (complete failure)
-- Corners detected but wrong square (partial failure)
-- Homography valid but rear-rank piece occlusion causes cell misalignment
+### 2.2 Centre-3x3 Strategy
 
-### 2.2 Candidate Detectors
+Detect the inner 2x2 grid of intersection points within the central 3x3 square region (d4/e4/d5/e5 in board coordinates). These intersections have the highest local contrast (surrounded by alternating squares on all sides), sit closest to the optical axis (least lens distortion), and are sufficient to uniquely determine the full homography.
 
-| Detector | Notes |
-|---|---|
-| chessboard2fen pose-estimation net | Baseline; handles arbitrary angles |
-| YOLOv8 keypoint detector | Train on 4-corner keypoints; more robust to partial occlusion |
-| OpenCV `findChessboardCornersSB` | Fast but assumes overhead view; likely insufficient |
+```
+Board coordinate system (normalised 0.0 - 1.0):
 
-If chessboard2fen's detector degrades below ~80% on the foreshortened set, replace it with a YOLOv8 keypoint model fine-tuned on homographically-warped overhead images.
-
-### 2.3 Data Augmentation for Foreshortening
-
-Generate synthetic foreshortened training data from overhead images:
-
-```python
-# Apply random projective transforms to overhead images
-# Simulate angles: 30-70 degrees from horizontal
-# Simulate distances: 0.5m - 2.0m board-to-camera
-# Add barrel distortion matching Ray-Ban Meta spec
+  a    b    c    d    e    f    g    h
+  |    |    |    |    |    |    |    |
+--+----+----+----+----+----+----+----+--
+  |                                  |  8
+  |         [centre 3x3]             |  7
+  |         +----+----+              |  6
+  |         |    |    |              |  5   <-- detect these 4 intersections
+  |         +----+----+              |  4       (3/8, 3/8), (5/8, 3/8)
+  |         |    |    |              |  3       (3/8, 5/8), (5/8, 5/8)
+  |         +----+----+              |  2
+  |                                  |  1
+--+----+----+----+----+----+----+----+--
 ```
 
-### 2.4 Export Corner Detector to ONNX
+Once the 4 centre intersections are localised in image space, `cv::findHomography` gives the full projective transform. All 64 cell centres and all board corners are then derived by applying H to their known board coordinates -- no extrapolation, exact given the planar model.
 
-```python
-# PyTorch / YOLO export
-model.export(format='onnx', opset=17, simplify=True)
+```cpp
+// Known board coordinates of the 4 centre intersections
+std::vector<cv::Point2f> board_pts = {
+    {3/8.f, 3/8.f}, {5/8.f, 3/8.f},
+    {3/8.f, 5/8.f}, {5/8.f, 5/8.f}
+};
 
-# Verify on desktop with ONNX Runtime before Android
-import onnxruntime as rt
-sess = rt.InferenceSession('corner_detector.onnx')
+// Detected image-space positions (from detector below)
+std::vector<cv::Point2f> img_pts = detect_centre_intersections(frame);
+
+cv::Mat H = cv::findHomography(board_pts, img_pts, cv::RANSAC);
+
+// Project any board coordinate to image space
+auto applyH = [&](cv::Point2f p) -> cv::Point2f {
+    cv::Mat pt = (cv::Mat_<double>(3,1) << p.x, p.y, 1.0);
+    cv::Mat res = H * pt;
+    return {(float)(res.at<double>(0)/res.at<double>(2)),
+            (float)(res.at<double>(1)/res.at<double>(2))};
+};
+
+// Derive all 64 cell centres
+for (int r = 0; r < 8; ++r)
+    for (int c = 0; c < 8; ++c)
+        cell_centres[r][c] = applyH({(c + 0.5f)/8.f, (r + 0.5f)/8.f});
 ```
 
-### 2.5 Deliverable
+### 2.3 Centre Intersection Detector
 
-`corner_detector.onnx` with documented:
-- Input shape: `[1, 3, H, W]`, normalisation parameters
-- Output shape: `[1, 4, 2]` (four corners, xy)
-- Accuracy on foreshortened test set: target >90%
+OpenCV's `findChessboardCornersSB` with a tight ROI around the image centre works well for the 3x3 case when those squares are unoccupied. It is fast, requires no ONNX model, and is robust to foreshortening because the search area is small and central.
+
+```cpp
+// Crop to central 40% of image before detection (reduces search space, improves robustness)
+cv::Rect roi(width*0.3, height*0.3, width*0.4, height*0.4);
+cv::Mat centre_crop = frame(roi);
+
+std::vector<cv::Point2f> corners;
+bool found = cv::findChessboardCornersSB(centre_crop, cv::Size(2,2), corners,
+    cv::CALIB_CB_EXHAUSTIVE | cv::CALIB_CB_ACCURACY);
+
+if (found) {
+    // Translate back to full-frame coordinates
+    for (auto& p : corners) { p.x += roi.x; p.y += roi.y; }
+}
+```
+
+If `findChessboardCornersSB` proves insufficient (pieces on centre squares, lighting), fall back to a learned keypoint detector (YOLOv8-pose trained on centre intersections only).
+
+### 2.4 Homography Validation
+
+After computing H, validate it before use:
+
+```cpp
+// Reprojection error on the 4 source points should be < 2px
+double reproj_err = 0;
+for (int i = 0; i < 4; ++i)
+    reproj_err += cv::norm(applyH(board_pts[i]) - img_pts[i]);
+reproj_err /= 4;
+
+if (reproj_err > MAX_REPROJ_ERROR) return std::nullopt; // reject frame
+```
+
+Also check the homography is geometrically sane: determinant positive, no extreme shear, projected board occupies a plausible image area fraction.
+
+### 2.5 Occlusion Fallback: Optical Flow Tracking
+
+When the centre squares are occupied mid-game, re-detection from scratch fails. Use optical flow to maintain the homography between re-detection opportunities:
+
+```cpp
+// On successful detection: save corner image points as tracking features
+// On subsequent frames: Lucas-Kanade track those points
+std::vector<cv::Point2f> prev_pts, curr_pts;
+std::vector<uchar> status;
+cv::calcOpticalFlowPyrLK(prev_grey, curr_grey, prev_pts, curr_pts, status, cv::noArray());
+
+// Recompute H from tracked points (only if enough points tracked successfully)
+int good = std::count(status.begin(), status.end(), 1);
+if (good >= 4)
+    H = cv::findHomography(board_pts, curr_pts, cv::RANSAC);
+else
+    tracking_lost = true; // trigger re-detection attempt
+```
+
+Re-attempt full centre detection whenever the board is likely unoccupied at the centre (query BoardTracker for piece positions).
+
+### 2.6 Data Augmentation for Foreshortening
+
+For training or fine-tuning any learned detector, generate synthetic foreshortened images:
+
+```python
+# Projective warp overhead images to simulate glasses-camera perspective
+# Angles: 30-70 degrees from horizontal
+# Distances: 0.5m - 2.5m board-to-camera
+# Granite-like surround: blend board edge into low-contrast background
+```
+
+### 2.7 Deliverable
+
+`BoardDetector.h / BoardDetector.cpp` implementing:
+- Centre-3x3 intersection detection (OpenCV, no ONNX dependency)
+- Homography computation and validation
+- Optical flow tracking fallback
+- `detect(frame) -> std::optional<cv::Mat>` returning H or nullopt
+
+ONNX model (`centre_detector.onnx`) only if OpenCV path proves insufficient -- document that decision explicitly.
+
+Updated ONNX contract if model is needed:
+
+| Model | Input | Output | Opset | Dynamic axes |
+|---|---|---|---|---|
+| `centre_detector.onnx` | `[1,3,H,W]` float32, normalised [0,1] | `[1,4,2]` float32, normalised [0,1] coords | 17 | H, W dynamic |
 
 ---
 
@@ -325,23 +416,30 @@ public:
 
 **Goal:** Handle the specific constraints of the Ray-Ban Meta Gen 2 camera.
 
-### 6.1 Barrel Distortion Correction
+### 6.1 Barrel Distortion -- Verify First
 
-Calibrate the glasses camera using a printed chessboard calibration pattern:
+The Ray-Ban Meta Gen 2 ISP pipeline is a black box. It likely applies lens correction before images reach the app, in which case adding your own `cv::undistort` step would make things worse.
+
+**Calibration surface:** use hardwood floorboards as the background when photographing the calibration pattern -- flat, rigid, high contrast, no texture interference. Watch for specular hotspots from glossy floor finish under direct lighting; if present, diffuse the light source or angle the pattern slightly off perpendicular.
+
+**Verification step (do this before writing any undistort code):**
+
+Photograph a flat printed grid with the glasses. Inspect straight lines near frame edges in the saved image. If they are straight, the ISP is already correcting -- skip undistortion entirely. If they bow outward, calibrate:
 
 ```cpp
 // One-time calibration (run on desktop, bake coefficients into app)
 cv::calibrateCamera(object_points, image_points, image_size,
                     camera_matrix, dist_coeffs, rvecs, tvecs);
 
-// Per-frame undistortion (PreProcessor stage)
-cv::undistort(src, dst, camera_matrix, dist_coeffs);
-// Or precompute maps for speed:
-cv::initUndistortRectifyMap(..., map1, map2);
+// Per-frame undistortion -- precompute maps for speed
+cv::initUndistortRectifyMap(camera_matrix, dist_coeffs, cv::Mat(),
+                             camera_matrix, image_size, CV_32FC1, map1, map2);
 cv::remap(src, dst, map1, map2, cv::INTER_LINEAR);
 ```
 
-Store calibration coefficients in a `camera_calibration.json` asset.
+Store calibration coefficients in `camera_calibration.json`. If ISP correction is confirmed, store an identity entry and skip the remap call.
+
+**Expected outcome:** lines from the glasses camera appear straight in practice. The undistort path likely becomes a no-op, simplifying PreProcessor considerably.
 
 ### 6.2 Frame Selection
 
@@ -398,9 +496,9 @@ kaicore/
     CellClassifier.cpp / .h     -- ONNX per-cell piece classification
     BoardTracker.cpp / .h       -- stateful legality filter
   assets/
-    corner_detector.onnx
     piece_classifier.onnx
-    camera_calibration.json
+    centre_detector.onnx    (optional, only if OpenCV path insufficient)
+    camera_calibration.json (identity if ISP already corrects distortion)
   tests/
     TestFenExtractor.cpp
     TestBoardDetector.cpp
@@ -420,11 +518,11 @@ scripts/                         -- desktop Python (not deployed to device)
 
 ## ONNX Model Contracts
 
-All models must satisfy these constraints before Android integration:
+The centre-3x3 board detection (Stage 2) is implemented in OpenCV C++ with no ONNX dependency unless the OpenCV path proves insufficient. Only the piece classifier requires an ONNX model by default.
 
 | Model | Input | Output | Opset | Dynamic axes |
 |---|---|---|---|---|
-| `corner_detector.onnx` | `[1,3,H,W]` float32, normalised [0,1] | `[1,4,2]` float32, normalised [0,1] coords | 17 | H, W dynamic |
+| `centre_detector.onnx` (optional) | `[1,3,H,W]` float32, normalised [0,1] | `[1,4,2]` float32, normalised [0,1] coords | 17 | H, W dynamic |
 | `piece_classifier.onnx` | `[64,3,64,64]` float32, normalised | `[64,13]` float32 logits | 17 | none |
 
 Piece class index mapping (0-12):
@@ -464,7 +562,7 @@ Stage 1 (baseline) --> Stage 2 (corner detector ONNX)
                        Stage 6 (hardening)
 ```
 
-Stages 1-3 are pure Python / desktop. Do not start Stage 5 until Stages 2 and 3 each have a validated `.onnx` with documented accuracy metrics. Stage 4 can be written in C++ in parallel with Stages 2-3.
+Stages 1-3 are pure Python / desktop. Do not start Stage 5 until Stage 2 (BoardDetector) and Stage 3 (classifier ONNX) each have validated accuracy metrics. Stage 4 can be written in C++ in parallel with Stages 2-3. Stage 2 has no ONNX dependency by default -- it can be developed and tested on desktop purely with OpenCV before any model training begins.
 
 ---
 
