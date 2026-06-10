@@ -12,6 +12,14 @@ board, extract board state as FEN, and distribute analysis across Android
 devices. That target architecture is tracked below as roadmap, not current
 implementation.
 
+## Project Plan
+
+The detailed image-to-FEN pipeline plan is a primary project document:
+
+**[KaiKaspar: Image-to-FEN Pipeline Plan](https://github.com/cschladetsch/KaiKaspar/blob/master/kaikuspar-fen-plan.md)**
+
+The same document is checked into this repository as `kaikuspar-fen-plan.md`.
+
 ## Current Implementation
 
 ```mermaid
