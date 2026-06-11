@@ -37,6 +37,25 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         BoardTracker.cpp
         FenExtractor.cpp)
 
+# Enable testing
+enable_testing()
+
+# Find GTest
+find_package(GTest REQUIRED)
+
+# Add native tests
+add_executable(kaicore_test
+        ../../test/cpp/TestPreProcessor.cpp
+        ../../test/cpp/TestBoardTracker.cpp
+)
+
+target_link_libraries(kaicore_test
+        ${CMAKE_PROJECT_NAME}
+        GTest::gtest_main
+        ${OpenCV_LIBS}
+        onnxruntime::onnxruntime
+)
+
 # Specifies libraries CMake should link to your target library. You
 # can link libraries from various origins, such as libraries defined in this
 # build script, prebuilt third-party libraries, or Android system libraries.

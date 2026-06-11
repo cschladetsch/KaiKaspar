@@ -166,15 +166,16 @@ flowchart TD
 - [x] Move active JNI surface from `MainActivity` into `kaicore.NativeLib`
 - [x] P: dedicated KAI node publishing contract
 - [x] P: Meta View / Ray-Ban frame ingress contract
+- [x] P: board detection pipeline
+- [x] P: piece classifier
+- [x] P: FEN generation
+- [x] P: GlassesAgent audio egress
 - [ ] P: KAI node on Android
 - [ ] P: Android console demo linked to CppKAI Console
 - [ ] P: real KAI mesh transport
 - [ ] P: real Meta View frame adapter
 - [ ] P: lens calibration
-- [ ] P: board detection pipeline
-- [ ] P: piece classifier
-- [ ] P: FEN generation
-- [ ] P: GlassesAgent audio egress
+- [ ] P: LLM post-processor
 - [ ] T1: KAI node on Android
 - [ ] T1: Stockfish integration
 - [ ] T1: board visualisation
