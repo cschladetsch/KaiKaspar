@@ -26,33 +26,33 @@ std::vector<int> CellClassifier::classify(const cv::Mat& frame, const cv::Mat& H
 }
 
 std::vector<cv::Mat> CellClassifier::extract_cells(const cv::Mat& frame, const cv::Mat& H) {
+    // Warp the entire board to a canonical 512x512 square
+    cv::Mat warped_board;
+    cv::Size canonical_size(512, 512);
+    
+    // Homography H projects from board coordinates [0,1] to image.
+    // We need the inverse to project from image to canonical board.
+    cv::Mat H_inv = H.inv();
+    
+    // Scaling matrix to go from board coordinates [0,1] to [0,512]
+    cv::Mat S = (cv::Mat_<double>(3,3) << 512, 0, 0, 0, 512, 0, 0, 0, 1);
+    cv::Mat H_warp = S * H_inv;
+
+    cv::warpPerspective(frame, warped_board, H_warp, canonical_size);
+
     std::vector<cv::Mat> cells;
     cells.reserve(64);
 
+    int cell_w = canonical_size.width / 8;
+    int cell_h = canonical_size.height / 8;
+
     for (int r = 0; r < 8; r++) {
         for (int c = 0; c < 8; c++) {
-            // Define square corners in board coordinates
-            std::vector<cv::Point2f> board_corners = {
-                {c / 8.f, r / 8.f}, {(c + 1) / 8.f, r / 8.f},
-                {(c + 1) / 8.f, (r + 1) / 8.f}, {c / 8.f, (r + 1) / 8.f}
-            };
-
-            std::vector<cv::Point2f> img_corners;
-            cv::perspectiveTransform(board_corners, img_corners, H);
-
-            // Simple cell extraction: get bounding box and warp
-            cv::Rect bbox = cv::boundingRect(img_corners);
-            // Ensure bbox is within frame
-            bbox &= cv::Rect(0, 0, frame.cols, frame.rows);
-            
-            if (bbox.area() > 0) {
-                cv::Mat cell = frame(bbox);
-                cv::Mat resized;
-                cv::resize(cell, resized, config_.input_size);
-                cells.push_back(resized);
-            } else {
-                cells.push_back(cv::Mat::zeros(config_.input_size, frame.type()));
-            }
+            cv::Rect cell_roi(c * cell_w, r * cell_h, cell_w, cell_h);
+            cv::Mat cell = warped_board(cell_roi);
+            cv::Mat resized;
+            cv::resize(cell, resized, config_.input_size);
+            cells.push_back(resized);
         }
     }
 
