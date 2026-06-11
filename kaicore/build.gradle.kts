@@ -22,6 +22,10 @@ android {
         }
     }
 
+    buildFeatures {
+        prefab = true
+    }
+
     externalNativeBuild {
         cmake {
             path("src/main/cpp/CMakeLists.txt")
@@ -38,6 +42,8 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
     implementation(libs.material)
+    implementation(libs.onnxruntime.android)
+    implementation(libs.opencv.android)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)

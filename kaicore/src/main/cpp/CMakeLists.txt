@@ -11,6 +11,10 @@ cmake_minimum_required(VERSION 3.22.1)
 # build script scope).
 project("kaicore")
 
+# Find OpenCV and ONNX Runtime
+find_package(OpenCV REQUIRED)
+find_package(onnxruntime REQUIRED CONFIG)
+
 # Creates and names a library, sets it as either STATIC
 # or SHARED, and provides the relative paths to its source code.
 # You can define multiple libraries, and CMake builds them for you.
@@ -26,7 +30,12 @@ project("kaicore")
 # used in the AndroidManifest.xml file.
 add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
-        kaicore.cpp)
+        kaicore.cpp
+        PreProcessor.cpp
+        BoardDetector.cpp
+        CellClassifier.cpp
+        BoardTracker.cpp
+        FenExtractor.cpp)
 
 # Specifies libraries CMake should link to your target library. You
 # can link libraries from various origins, such as libraries defined in this
@@ -34,4 +43,6 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 target_link_libraries(${CMAKE_PROJECT_NAME}
         # List libraries link to the target library
         android
-        log)
+        log
+        ${OpenCV_LIBS}
+        onnxruntime::onnxruntime)

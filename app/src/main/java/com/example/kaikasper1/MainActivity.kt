@@ -12,23 +12,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.cschladetsch.kaicore.NativeLib
-import com.cschladetsch.kaicore.chess.BoardSquare
-import com.cschladetsch.kaicore.chess.ChessColor
-import com.cschladetsch.kaicore.chess.ChessPiece
-import com.cschladetsch.kaicore.chess.ChessPieceIntegrationSystem
-import com.cschladetsch.kaicore.chess.ChessPieceType
-import com.cschladetsch.kaicore.chess.MetaRayBanChessIngress
-import com.cschladetsch.kaicore.chess.MetaRayBanFrame
-import com.cschladetsch.kaicore.chess.PieceObservationBatch
-import com.cschladetsch.kaicore.chess.PieceOnSquare
+import com.cschladetsch.kaicore.chess.*
 import com.example.kaikasper1.ui.theme.KaiKasper1Theme
+import java.io.File
+import java.io.FileOutputStream
 import java.time.Instant
 
 class MainActivity : ComponentActivity() {
     private val nativeLib = NativeLib()
+    private lateinit var audioOutput: AudioOutputNode
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        audioOutput = AudioOutputNode(this)
+        
+        // Initialize pipeline with model from assets
+        val modelPath = copyAssetToInternalStorage("piece_classifier.onnx")
+        nativeLib.initPipeline(modelPath)
+
         val status = sampleIntegrationStatus(nativeLib.stringFromJNI())
         enableEdgeToEdge()
         setContent {
@@ -41,6 +43,28 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun copyAssetToInternalStorage(assetName: String): String {
+        val file = File(filesDir, assetName)
+        if (!file.exists()) {
+            try {
+                assets.open(assetName).use { inputStream ->
+                    FileOutputStream(file).use { outputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+                }
+            } catch (e: Exception) {
+                // Return a placeholder path if asset is missing for now
+                return file.absolutePath
+            }
+        }
+        return file.absolutePath
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        audioOutput.shutdown()
     }
 }
 

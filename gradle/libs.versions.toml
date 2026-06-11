@@ -10,8 +10,12 @@ kotlin = "2.2.10"
 composeBom = "2026.02.01"
 appcompat = "1.6.1"
 material = "1.10.0"
+onnxruntime = "1.17.0"
+opencv = "4.9.0"
 
 [libraries]
+onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
+opencv-android = { group = "org.opencv", name = "opencv", version.ref = "opencv" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
