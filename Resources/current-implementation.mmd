@@ -1,5 +1,9 @@
 flowchart LR
     App[":app<br/>Compose Android app<br/>com.example.kaikasper1"] --> Core[":kaicore<br/>Android library"]
-    App --> JNI["System.loadLibrary('kaicore')<br/>MainActivity.stringFromJNI()"]
+    App --> Native["NativeLib<br/>active JNI surface"]
+    App --> Ingress["MetaRayBanChessIngress<br/>frame + piece batches"]
+    Ingress --> Board["BoardState<br/>piece validation + FEN"]
+    Board --> Node["DedicatedKaiNode<br/>kaspar.chess.board_state"]
+    Native --> JNI["System.loadLibrary('kaicore')<br/>NativeLib.stringFromJNI()"]
     Core --> CMake["CMake 3.22.1<br/>shared library: libkaicore.so"]
     CMake --> CPP["kaicore.cpp<br/>JNI smoke-test string"]

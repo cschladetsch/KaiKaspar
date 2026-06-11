@@ -25,19 +25,28 @@ The same document is checked into this repository as `kaikuspar-fen-plan.md`.
 ```mermaid
 flowchart LR
     App[":app<br/>Compose Android app<br/>com.example.kaikasper1"] --> Core[":kaicore<br/>Android library"]
-    App --> JNI["System.loadLibrary('kaicore')<br/>MainActivity.stringFromJNI()"]
+    App --> Native["NativeLib<br/>active JNI surface"]
+    App --> Ingress["MetaRayBanChessIngress<br/>frame + piece batches"]
+    Ingress --> Board["BoardState<br/>piece validation + FEN"]
+    Board --> Node["DedicatedKaiNode<br/>kaspar.chess.board_state"]
+    Native --> JNI["System.loadLibrary('kaicore')<br/>NativeLib.stringFromJNI()"]
     Core --> CMake["CMake 3.22.1<br/>shared library: libkaicore.so"]
     CMake --> CPP["kaicore.cpp<br/>JNI smoke-test string"]
 ```
 
 - `:app` is the launchable Android app.
-- `MainActivity` renders a Compose `Scaffold` containing a text greeting.
-- `MainActivity.stringFromJNI()` is the active JNI binding and returns a C++
+- `MainActivity` renders a Compose `Scaffold` containing the current ingress
+  and KAI publication status.
+- `NativeLib.stringFromJNI()` is the active JNI binding and returns a C++
   smoke-test string from `libkaicore.so`.
+- `MetaRayBanChessIngress` accepts Ray-Ban frame metadata plus piece
+  observations, normalizes them to `BoardState`, generates FEN, and publishes a
+  `kaspar.chess.board_state` envelope to a dedicated KAI node abstraction.
 - `:kaicore` builds the native shared library with CMake and packages it for
   the app.
-- `NativeLib` exists as a library-side placeholder, but its JNI method is not
-  currently implemented or used by the app.
+- The concrete Meta View / glasses transport and real KAI mesh transport remain
+  adapter points; the core chess integration contract is in place and covered by
+  unit tests.
 
 ## Repository Layout
 
@@ -76,6 +85,17 @@ gradlew.bat :app:assembleDebug
 gradlew.bat test
 ```
 
+Preferred Windows helper:
+
+```powershell
+.\dev.ps1
+.\dev.ps1 assembleDebug
+.\dev.ps1 connectedAndroidTest
+```
+
+`dev.ps1` pins `JAVA_HOME` to the Android Studio JBR so you do not have to
+re-find Java before every run.
+
 ## Implemented Modules
 
 ### `:app`
@@ -85,7 +105,7 @@ gradlew.bat test
 - Target SDK: 36
 - UI stack: Jetpack Compose, Material 3, Activity Compose
 - Depends on `:kaicore`
-- Loads `libkaicore.so` directly in `MainActivity`
+- Calls the `kaicore.NativeLib` JNI facade and displays a sample KAI publication
 
 ### `:kaicore`
 
@@ -93,7 +113,8 @@ gradlew.bat test
 - Android library module
 - Builds `libkaicore.so` from `kaicore/src/main/cpp/kaicore.cpp`
 - Links Android `android` and `log` libraries
-- Exposes a placeholder Kotlin `NativeLib` class
+- Exposes `NativeLib` plus chess ingress, FEN serialization, and dedicated KAI
+  node publishing contracts
 
 ## Target Architecture
 
@@ -142,10 +163,13 @@ flowchart TD
 - [x] Android library module
 - [x] CMake-built native shared library
 - [x] JNI smoke test from Compose UI
-- [ ] Move active JNI surface from `MainActivity` into `kaicore.NativeLib`
+- [x] Move active JNI surface from `MainActivity` into `kaicore.NativeLib`
+- [x] P: dedicated KAI node publishing contract
+- [x] P: Meta View / Ray-Ban frame ingress contract
 - [ ] P: KAI node on Android
 - [ ] P: Android console demo linked to CppKAI Console
-- [ ] P: Meta View frame ingress
+- [ ] P: real KAI mesh transport
+- [ ] P: real Meta View frame adapter
 - [ ] P: lens calibration
 - [ ] P: board detection pipeline
 - [ ] P: piece classifier
