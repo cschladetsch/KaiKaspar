@@ -13,6 +13,12 @@ android {
     defaultConfig {
         minSdk = 34
 
+        externalNativeBuild {
+            cmake {
+                cppFlags("")
+                arguments("-DANDROID_STL=c++_shared")
+            }
+        }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
         externalNativeBuild {
@@ -20,6 +26,10 @@ android {
                 cppFlags("")
             }
         }
+    }
+
+    buildFeatures {
+        prefab = true
     }
 
     externalNativeBuild {
@@ -38,6 +48,8 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
     implementation(libs.material)
+    implementation(libs.onnxruntime.android)
+    implementation(libs.opencv.android)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
