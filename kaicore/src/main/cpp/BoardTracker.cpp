@@ -2,7 +2,9 @@
 
 namespace kaspar {
 
-BoardTracker::BoardTracker(const Config& config) 
+BoardTracker::BoardTracker() : BoardTracker(Config{}) {}
+
+BoardTracker::BoardTracker(const Config& config)
     : config_(config), current_fen_(config.initial_fen) {}
 
 std::optional<std::string> BoardTracker::update(const std::string& raw_fen) {

@@ -12,10 +12,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.cschladetsch.kaicore.NativeLib
+import com.cschladetsch.kaicore.HardwareAwareInference
 import com.cschladetsch.kaicore.chess.*
 import com.example.kaikasper1.ui.theme.KaiKasper1Theme
-import java.io.File
-import java.io.FileOutputStream
 import java.time.Instant
 
 class MainActivity : ComponentActivity() {
@@ -27,11 +26,25 @@ class MainActivity : ComponentActivity() {
         
         audioOutput = AudioOutputNode(this)
         
-        // Initialize pipeline with model from assets
-        val modelPath = copyAssetToInternalStorage("piece_classifier.onnx")
-        nativeLib.initPipeline(modelPath)
+        val inferencePlan = HardwareAwareInference.createPlan(this)
+        val inferenceStatus = if (inferencePlan == null) {
+            "Classifier unavailable: no compatible packaged model"
+        } else {
+            val initialized = nativeLib.initPipeline(
+                inferencePlan.modelPath,
+                inferencePlan.cpuThreads,
+                inferencePlan.useNnapi,
+                inferencePlan.allowFp16
+            )
+            val backend = if (inferencePlan.useNnapi) "NNAPI + CPU fallback" else "CPU"
+            if (initialized) {
+                "Classifier: ${inferencePlan.model.assetPath} ($backend, ${inferencePlan.cpuThreads} CPU threads)"
+            } else {
+                "Classifier failed to initialize"
+            }
+        }
 
-        val status = sampleIntegrationStatus(nativeLib.stringFromJNI())
+        val status = sampleIntegrationStatus("${nativeLib.stringFromJNI()}\n$inferenceStatus")
         enableEdgeToEdge()
         setContent {
             KaiKasper1Theme {
@@ -43,23 +56,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-    }
-
-    private fun copyAssetToInternalStorage(assetName: String): String {
-        val file = File(filesDir, assetName)
-        if (!file.exists()) {
-            try {
-                assets.open(assetName).use { inputStream ->
-                    FileOutputStream(file).use { outputStream ->
-                        inputStream.copyTo(outputStream)
-                    }
-                }
-            } catch (e: Exception) {
-                // Return a placeholder path if asset is missing for now
-                return file.absolutePath
-            }
-        }
-        return file.absolutePath
     }
 
     override fun onDestroy() {

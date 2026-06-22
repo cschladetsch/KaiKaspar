@@ -13,7 +13,8 @@ public:
         std::string initial_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     };
 
-    BoardTracker(const Config& config = Config());
+    BoardTracker();
+    explicit BoardTracker(const Config& config);
 
     /**
      * @brief Updates the tracker with a new raw FEN from classification.

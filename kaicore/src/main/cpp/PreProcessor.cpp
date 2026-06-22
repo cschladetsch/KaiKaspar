@@ -2,6 +2,8 @@
 
 namespace kaspar {
 
+PreProcessor::PreProcessor() : PreProcessor(Config{}) {}
+
 PreProcessor::PreProcessor(const Config& config) : config_(config) {
     clahe_ = cv::createCLAHE(config_.clahe_clip_limit, config_.clahe_tile_grid_size);
 }

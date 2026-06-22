@@ -13,7 +13,8 @@ public:
         double clahe_clip_limit = 2.0;
     };
 
-    PreProcessor(const Config& config = Config());
+    PreProcessor();
+    explicit PreProcessor(const Config& config);
 
     /**
      * @brief Processes an input frame.

@@ -2,6 +2,20 @@ plugins {
     alias(libs.plugins.android.library)
 }
 
+val onnxRuntimeNative by configurations.creating
+val extractedOnnxRuntime = layout.buildDirectory.dir("onnxruntime")
+val extractOnnxRuntimeNative by tasks.registering {
+    outputs.dir(extractedOnnxRuntime)
+    doLast {
+        sync {
+            from(zipTree(onnxRuntimeNative.singleFile)) {
+                include("headers/**", "jni/**")
+            }
+            into(extractedOnnxRuntime)
+        }
+    }
+}
+
 android {
     namespace = "com.cschladetsch.kaicore"
     compileSdk {
@@ -16,7 +30,10 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags("")
-                arguments("-DANDROID_STL=c++_shared")
+                arguments(
+                    "-DANDROID_STL=c++_shared",
+                    "-DONNXRUNTIME_ROOT=${extractedOnnxRuntime.get().asFile.absolutePath}"
+                )
             }
         }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -45,6 +62,7 @@ android {
 }
 
 dependencies {
+    add(onnxRuntimeNative.name, libs.onnxruntime.android)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
     implementation(libs.material)
@@ -53,4 +71,10 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
+}
+
+tasks.configureEach {
+    if (name.contains("CMake")) {
+        dependsOn(extractOnnxRuntimeNative)
+    }
 }

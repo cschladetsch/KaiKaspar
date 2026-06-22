@@ -14,7 +14,8 @@ public:
         float roi_scale = 0.4f;
     };
 
-    BoardDetector(const Config& config = Config());
+    BoardDetector();
+    explicit BoardDetector(const Config& config);
 
     /**
      * @brief Detects the board in the frame and returns the homography matrix.

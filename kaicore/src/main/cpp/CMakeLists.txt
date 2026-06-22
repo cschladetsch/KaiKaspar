@@ -13,7 +13,24 @@ project("kaicore")
 
 # Find OpenCV and ONNX Runtime
 find_package(OpenCV REQUIRED)
-find_package(onnxruntime REQUIRED CONFIG)
+if(ANDROID)
+    set(OPENCV_TARGET OpenCV::opencv_java4)
+else()
+    set(OPENCV_TARGET ${OpenCV_LIBS})
+endif()
+if(ANDROID)
+    if(NOT ONNXRUNTIME_ROOT)
+        message(FATAL_ERROR "ONNXRUNTIME_ROOT must point to the extracted Android AAR")
+    endif()
+    add_library(onnxruntime SHARED IMPORTED)
+    set_target_properties(onnxruntime PROPERTIES
+            IMPORTED_LOCATION "${ONNXRUNTIME_ROOT}/jni/${ANDROID_ABI}/libonnxruntime.so"
+            INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_ROOT}/headers")
+    set(ONNXRUNTIME_TARGET onnxruntime)
+else()
+    find_package(onnxruntime REQUIRED CONFIG)
+    set(ONNXRUNTIME_TARGET onnxruntime::onnxruntime)
+endif()
 
 # Creates and names a library, sets it as either STATIC
 # or SHARED, and provides the relative paths to its source code.
@@ -37,24 +54,18 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         BoardTracker.cpp
         FenExtractor.cpp)
 
-# Enable testing
-enable_testing()
-
-# Find GTest
-find_package(GTest REQUIRED)
-
-# Add native tests
-add_executable(kaicore_test
-        ../../test/cpp/TestPreProcessor.cpp
-        ../../test/cpp/TestBoardTracker.cpp
-)
-
-target_link_libraries(kaicore_test
-        ${CMAKE_PROJECT_NAME}
-        GTest::gtest_main
-        ${OpenCV_LIBS}
-        onnxruntime::onnxruntime
-)
+if(NOT ANDROID)
+    enable_testing()
+    find_package(GTest REQUIRED)
+    add_executable(kaicore_test
+            ../../test/cpp/TestPreProcessor.cpp
+            ../../test/cpp/TestBoardTracker.cpp)
+    target_link_libraries(kaicore_test
+            ${CMAKE_PROJECT_NAME}
+            GTest::gtest_main
+            ${OPENCV_TARGET}
+            onnxruntime::onnxruntime)
+endif()
 
 # Specifies libraries CMake should link to your target library. You
 # can link libraries from various origins, such as libraries defined in this
@@ -63,5 +74,5 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         # List libraries link to the target library
         android
         log
-        ${OpenCV_LIBS}
-        onnxruntime::onnxruntime)
+        ${OPENCV_TARGET}
+        ${ONNXRUNTIME_TARGET})

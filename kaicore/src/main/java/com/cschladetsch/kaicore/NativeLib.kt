@@ -8,7 +8,12 @@ class NativeLib {
      */
     external fun stringFromJNI(): String
 
-    external fun initPipeline(modelPath: String)
+    external fun initPipeline(
+        modelPath: String,
+        cpuThreads: Int,
+        useNnapi: Boolean,
+        allowFp16: Boolean
+    ): Boolean
 
     external fun processFrame(frameData: ByteArray, width: Int, height: Int): String?
 

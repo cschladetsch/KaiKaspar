@@ -13,6 +13,9 @@ public:
         std::string model_path;
         cv::Size input_size = cv::Size(64, 64);
         int num_classes = 13; // empty + 6 pieces * 2 colors
+        int cpu_threads = 1;
+        bool use_nnapi = false;
+        bool allow_fp16 = false;
     };
 
     CellClassifier(const Config& config);
@@ -31,7 +34,6 @@ private:
     std::unique_ptr<Ort::Session> session_;
 
     std::vector<cv::Mat> extract_cells(const cv::Mat& frame, const cv::Mat& H);
-    int predict_cell(const cv::Mat& cell);
 };
 
 } // namespace kaspar

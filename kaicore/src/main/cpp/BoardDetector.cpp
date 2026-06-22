@@ -2,6 +2,8 @@
 
 namespace kaspar {
 
+BoardDetector::BoardDetector() : BoardDetector(Config{}) {}
+
 BoardDetector::BoardDetector(const Config& config) : config_(config) {}
 
 std::optional<cv::Mat> BoardDetector::detect(const cv::Mat& frame) {
