@@ -1,0 +1,50 @@
+<style>
+.card-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding: 1rem 0; }
+.bc { width: 340px; height: 190px; border-radius: 10px; border: 0.5px solid var(--color-border-secondary); padding: 20px 22px; box-sizing: border-box; background: var(--color-background-primary); position: relative; overflow: hidden; }
+.bc-label { font-size: 10px; color: var(--color-text-tertiary); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 14px; }
+</style>
+
+<div class="card-wrap">
+
+<div>
+  <div class="bc-label">Front</div>
+  <div class="bc">
+    <svg style="position:absolute; right:-10px; bottom:-8px; opacity:0.10; transform:scale(3.8); transform-origin:bottom right;" width="45" height="45" viewBox="0 0 45 45" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <g fill="none" fill-rule="evenodd" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5">
+        <path d="M22 10c10.5 1 16.5 8 16 29H15c0-9 10-6.5 8-21"/>
+        <path d="M24 18c.38 2.91-5.55 7.37-8 9-3 2-2.82 4.34-5 4-1.042-.94 1.41-3.04 0-3-1 0 .19 1.23-1 2-1 0-4.003 1-4-4 0-2 6-12 6-12s1.89-1.9 2-3.5c-.73-.994-.5-2-.5-3 1-1 3 2.5 3 2.5h2s.78-1.992 2.5-3c1 0 1 3 1 3"/>
+      </g>
+    </svg>
+    <p style="font-size:19px; font-weight:500; color:var(--color-text-primary); margin:0 0 16px; position:relative; z-index:1;">KaiKaspar</p>
+    <p style="font-size:12px; color:var(--color-text-secondary); margin:0; line-height:1.6; position:relative; z-index:1;">My glasses are tracking the board.<br>I could hear the best moves via my glasses if I wished.</p>
+  </div>
+</div>
+
+<div>
+  <div class="bc-label">Back</div>
+  <div class="bc" style="display:flex; align-items:center; justify-content:center; gap:24px;">
+    <svg style="position:absolute; right:-10px; bottom:-8px; opacity:0.09; transform:scale(4.2); transform-origin:bottom right;" width="45" height="45" viewBox="0 0 45 45" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <g fill="none" fill-rule="evenodd" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5">
+        <g stroke-linecap="butt">
+          <path d="M9 36c3.39-.97 10.11.43 13.5-2 3.39 2.43 10.11 1.03 13.5 2 0 0 1.65.54 3 2-.68.97-1.65.99-3 .5-3.39-.97-10.11.46-13.5-1-3.39 1.46-10.11.03-13.5 1-1.35.49-2.32.47-3-.5 1.35-1.94 3-2 3-2z"/>
+          <path d="M15 32c2.5 2.5 12.5 2.5 15 0 .5-1.5 0-2 0-2 0-2.5-2.5-4-2.5-4 5.5-1.5 6-11.5-5-15.5-11 4-10.5 14-5 15.5 0 0-2.5 1.5-2.5 4 0 0-.5.5 0 2z"/>
+          <path d="M25 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 1 1 5 0z"/>
+        </g>
+      </g>
+    </svg>
+    <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAZoAAAGaAQAAAAAefbjOAAADVUlEQVR4nO2cXa6jRhBGTwUkPzY7mKXgnUWzpOwAljI7aB4tNfry0F2AR0mkGUe2Ly4eWu4LR+oSdevfNvHL1/zHrzMQUEABfVFosXZdlx7mYTUAzIbVmK2nbevVP/t4AT0f6iRJAtamFixW1YIxu1qMkqT8/OMF9AKo/e/TiVES8zcJlh67JsmuQLUl15ccL6AnQv1xkwrMQ8agL4K1F6w94/Sq4wX0Ymg1TYuZpnQzZrsIlos0vcnxAnoaJKkAy0WMKgCdIJW78DLJdeNLyBTQ70G0YBFgzJ3+fWlXJ01vLlNAj0A9pO1tL6sJbnUBVhMUxALHStabyxTQ45CZ9dgVYB58YU8zWM1s2HKSLyFTQL/tNVSAVNqnPY4YJbUbGTTVRxRe49wQUvYKVVUBOkm5EyTdB5qSpogjzg7RypVuChhz05JapJySNt1o29CIU0Oea6Tif0hlyzruHhwz9UZoxKmh5jWmVKjFhmojNrsx3cURzVC8uUwBPQL1wGoaf1xkYx4AumKkDCwX2ZhXjFRqtVuzdeXtZQroEchzDXb/Ie3bFmN6e7QZlDeXKaBHoC3nbAFkCy93LfHc1AuXoREnhw6RpUcKXnZoAYZ/2jQnNOLUkL99ua+Y3Gu0rS815Ix6xOkhdgNw8B91cTfRklFFheoToEP2ufc564s/hBB3le3QiFNDrhF0dfihWYvs7uTQzYh6xEdA/rqBlmuoeLjAVrj0Dkd4jfNDXnHY6pNTKrSulvdDm5ak6Gt8AnTsa4za0oy0dTxr9FC8rxFe4+yQNy3YliT52/fAIfoaHwRxmIXYm96HThfgle0tAn1zmQJ6HHJDsZom2vDcUVVY7dg1/xIyBfSQjdhLUgeHkf/54bARp4YOVey9MnFIN/cbe5sjNOLk0P7d8HQzSDeTfvToe53P9q+K109LzGKfHOqBrra+DcDq7MxU6lbzkGXjXyCWzifv3lymgB6B6myUVbVYBmqGMQ8ZxgmMtPbMAwZ02KjnHi+gp0OHKana5JLPzhznsz3ubCXvN5cpoP8Vmq2veWiLGZJU09Lv3woRR3wK5J3vm9mfGWDpa5rRfonILmo3XnK8gF7Q14Cfhy1bczx7h3yqD0U94uSQxa8XBhRQQP9x/Q0nSR0dJHgqzQAAAABJRU5ErkJggg=="
+         style="width:95px; height:95px; flex-shrink:0; position:relative; z-index:1; margin-right:-9px;" alt="QR code">
+    <div style="display:flex; flex-direction:column; gap:8px; position:relative; z-index:1;">
+      <a href="https://www.linkedin.com/in/christianschladetsch/" style="font-size:12px; color:var(--color-text-info); text-decoration:none; display:flex; align-items:center; gap:6px;">
+        <i class="ti ti-brand-linkedin" style="font-size:16px;" aria-hidden="true"></i>
+        christianschladetsch
+      </a>
+      <a href="https://github.com/cschladetsch/KaiKaspar" style="font-size:12px; color:var(--color-text-info); text-decoration:none; display:flex; align-items:center; gap:6px;">
+        <i class="ti ti-brand-github" style="font-size:16px;" aria-hidden="true"></i>
+        cschladetsch/KaiKaspar
+      </a>
+    </div>
+  </div>
+</div>
+
+</div>
